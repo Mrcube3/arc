@@ -1,0 +1,16 @@
+{
+  "name": "arc-tipper-backend",
+  "version": "1.0.0",
+  "description": "Backend implementation for verifying tip transactions.",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "viem": "^2.48.4"
+  }
+}
