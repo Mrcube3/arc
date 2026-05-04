@@ -21,3 +21,4 @@ npm run dev
 - **Modern Glassmorphism UI**: High aesthetic impact using pure Tailwind CSS and dynamic abstract shadows.
 - **Micro-Animations**: Framer Motion handles tactile feedback for every tip preset and send confirmation, making it feel organic and responsive.
 - **Smart Validation**: The custom amount input cleanly overrides presets, with form states tied elegantly into the final `sendTransaction` event.
+# arc
