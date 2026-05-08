@@ -27,7 +27,7 @@
     "tailwindcss": "^4.2.4",
     "viem": "^2.48.4",
     "vite-plugin-node-polyfills": "^0.26.0",
-    "wagmi": "^3.6.8"
+    "wagmi": "^2.19.5"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

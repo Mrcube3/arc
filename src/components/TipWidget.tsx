@@ -1,48 +1,53 @@
 import { useState, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Loader2, Send, CheckCircle2, Wallet, ExternalLink, AlertCircle } from "lucide-react";
+import { Loader2, Send, CheckCircle2, Wallet, AlertCircle, Search, XCircle } from "lucide-react";
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { useAccount, useConnectorClient } from 'wagmi';
 import { AppKit } from "@circle-fin/app-kit";
 import { createViemAdapterFromProvider } from "@circle-fin/adapter-viem-v2";
+import { isAddress } from "viem";
 
-const RECIPIENT_ADDRESS = "0x0000000000000000000000000000000000000000" as `0x${string}`;
 const kit = new AppKit();
+const PRESET_AMOUNTS = ["0.10", "0.50", "1.00"] as const;
 
 type TxState = "idle" | "sending" | "verifying" | "success" | "error";
 
 export function TipWidget() {
-  const { isConnected, address } = useAccount();
+  const { isConnected, address: senderAddress, connector } = useAccount();
   const { data: client } = useConnectorClient();
   const [txState, setTxState] = useState<TxState>("idle");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [customAmount, setCustomAmount] = useState("");
+  const [selectedAmount, setSelectedAmount] = useState<string>("0.10");
+  const [recipientAddress, setRecipientAddress] = useState("");
+
+  const isValidAddress = recipientAddress ? isAddress(recipientAddress) : false;
+  const isSelf = isValidAddress && senderAddress && recipientAddress.toLowerCase() === senderAddress.toLowerCase();
+  const canSend = isValidAddress && !isSelf && (customAmount || selectedAmount);
+
+  const displayAmount = customAmount || selectedAmount;
 
   const sendTip = useCallback(async () => {
     if (!isConnected || !client) return;
     setTxState("sending");
     setErrorMsg(null);
-    setSuccessMsg(null);
     
     try {
-      // 1. Get the provider from Wagmi connector
-      // This supports MetaMask perfectly and WalletConnect.
       let provider;
       try {
-        provider = await client.connector.getProvider();
+        if (!connector) throw new Error("No connector");
+        provider = await connector.getProvider();
       } catch (e) {
-        // Fallback to injected window.ethereum if connector fails to get provider
         provider = (window as any).ethereum;
       }
       if (!provider) throw new Error("Wallet provider not found.");
 
       const adapter = await createViemAdapterFromProvider({ provider });
 
-      // 2. Send transaction via Arc Network App Kit
       const result = await kit.send({
         from: { adapter, chain: "Arc_Testnet" },
-        to: RECIPIENT_ADDRESS,
-        amount: "0.10", // Hardcoded per requirements
+        to: recipientAddress as `0x${string}`,
+        amount: displayAmount || "0.10",
         token: "USDC",
       });
 
@@ -51,11 +56,10 @@ export function TipWidget() {
 
       setTxState("verifying");
 
-      // 3. Verify transaction on backend
       const response = await fetch("http://localhost:3001/verify-tip", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ txHash }),
+        body: JSON.stringify({ txHash, recipient: recipientAddress }),
       });
 
       const data = await response.json();
@@ -63,51 +67,132 @@ export function TipWidget() {
         throw new Error(data.error || "Verification failed on backend");
       }
 
-      setSuccessMsg(data.message); // e.g. "Creator Role Unlocked!"
       setTxState("success");
 
     } catch (e: any) {
       console.warn("Transaction workflow failed:", e);
-      setErrorMsg(e.message || "Transaction workflow failed");
+      setErrorMsg(e.message || "Transaction failed. Make sure you have enough testnet USDC.");
       setTxState("error");
     }
-  }, [isConnected, client]);
+  }, [isConnected, client, displayAmount, recipientAddress]);
 
   const isLoading = txState === "sending" || txState === "verifying";
 
   return (
-    <div style={{ width: "100%", maxWidth: 380, position: "relative" }}>
+    <div className="w-full max-w-[380px] mx-auto relative px-2 sm:px-0">
       <motion.div
         initial={{ opacity: 0, y: 24, scale: 0.97 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
         transition={{ type: "spring", stiffness: 260, damping: 22 }}
-        className="glass-panel"
-        style={{ borderRadius: 28, padding: "2rem", position: "relative", overflow: "hidden", background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.05)", backdropFilter: "blur(16px)" }}
+        className="rounded-[28px] p-5 sm:p-8 relative overflow-hidden bg-white/5 border border-white/10 backdrop-blur-xl"
       >
-        <div style={{ position: "absolute", top: -50, right: -50, width: 180, height: 180, background: "radial-gradient(circle, rgba(59,130,246,0.25) 0%, transparent 70%)", borderRadius: "50%", pointerEvents: "none" }} />
-        <div style={{ position: "absolute", bottom: -40, left: -40, width: 160, height: 160, background: "radial-gradient(circle, rgba(168,85,247,0.2) 0%, transparent 70%)", borderRadius: "50%", pointerEvents: "none" }} />
+        <div className="absolute -top-12 -right-12 w-48 h-48 bg-blue-500/20 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute -bottom-10 -left-10 w-40 h-40 bg-purple-500/20 rounded-full blur-3xl pointer-events-none" />
 
-        <div style={{ position: "relative", zIndex: 1, display: "flex", flexDirection: "column", alignItems: "center" }}>
-          <div style={{ background: "rgba(59,130,246,0.15)", border: "1px solid rgba(59,130,246,0.35)", borderRadius: "50%", padding: "1rem", marginBottom: "1rem", boxShadow: "0 0 24px rgba(59,130,246,0.2)" }}>
-            <Wallet style={{ width: 32, height: 32, color: "#3b82f6" }} />
+        <div className="relative z-10 flex flex-col items-center">
+          <div className="bg-blue-500/15 border border-blue-500/30 rounded-full p-4 mb-4 shadow-[0_0_24px_rgba(59,130,246,0.2)]">
+            <Wallet className="w-8 h-8 text-blue-500" />
           </div>
 
-          <h2 style={{ color: "white", fontSize: "1.5rem", fontWeight: 700, margin: "0 0 0.25rem", letterSpacing: "-0.02em" }}>Verified Tipping</h2>
-          <p style={{ color: "rgba(255,255,255,0.5)", fontSize: "0.813rem", textAlign: "center", margin: "0 0 1.5rem", lineHeight: 1.6 }}>
-            Confirm on-chain with <span style={{ color: "#3b82f6", fontWeight: 600 }}>Arc Network</span>
+          <h2 className="text-white text-2xl font-bold mb-1 tracking-tight text-center">Verified Tipping</h2>
+          <p className="text-white/50 text-sm text-center mb-6 leading-relaxed">
+            Confirm on-chain with <span className="text-blue-500 font-semibold">Arc Network</span>
           </p>
 
-          <div style={{ marginBottom: "1.5rem", width: "100%", display: "flex", justifyContent: "center" }}>
+          <div className="mb-6 w-full flex justify-center">
             <ConnectButton showBalance={false} />
           </div>
 
           {isConnected && (
-            <div style={{ width: "100%", display: "flex", flexDirection: "column", gap: "1.25rem" }}>
+            <div className="w-full flex flex-col gap-4 sm:gap-5">
+              
+              {/* Recipient Input */}
+              <div className="relative">
+                <Search className="absolute left-4 sm:left-5 top-1/2 -translate-y-1/2 w-5 h-5 text-white/40" />
+                <input
+                  type="text"
+                  placeholder="Recipient Address (0x...)"
+                  value={recipientAddress}
+                  onChange={(e) => setRecipientAddress(e.target.value)}
+                  className={`w-full bg-black/25 border rounded-2xl py-3 sm:py-4 pr-12 pl-11 sm:pl-12 text-white text-sm sm:text-base font-medium outline-none transition-colors ${
+                    !recipientAddress
+                      ? "border-white/10 focus:border-white/30 focus:bg-white/10"
+                      : isValidAddress
+                      ? isSelf ? "border-amber-500/50 bg-amber-500/10" : "border-emerald-500/50 bg-emerald-500/10"
+                      : "border-red-500/50 bg-red-500/10"
+                  }`}
+                />
+                {recipientAddress && (
+                  <div className="absolute right-4 sm:right-5 top-1/2 -translate-y-1/2">
+                    {isValidAddress && !isSelf && <CheckCircle2 className="w-5 h-5 text-emerald-400" />}
+                    {(!isValidAddress || isSelf) && <XCircle className="w-5 h-5 text-red-400" />}
+                  </div>
+                )}
+                {isSelf && (
+                   <p className="text-amber-400 text-xs mt-1 ml-1 absolute -bottom-5">Cannot send to yourself</p>
+                )}
+              </div>
+
+              {/* Quick Tip Buttons */}
+              <div className="flex gap-2 w-full mt-2">
+                {[
+                  { name: "arc-dev", address: "0x1111111111111111111111111111111111111111" },
+                  { name: "arc-mods", address: "0x2222222222222222222222222222222222222222" },
+                  { name: "arc-dao", address: "0x3333333333333333333333333333333333333333" },
+                ].map((preset) => (
+                  <motion.button
+                    key={preset.name}
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={() => setRecipientAddress(preset.address)}
+                    className="flex-1 py-2 px-1 rounded-xl text-[10px] sm:text-xs font-semibold transition-all bg-white/5 text-blue-300 border border-blue-400/20 hover:bg-blue-500/20"
+                  >
+                    {preset.name}
+                  </motion.button>
+                ))}
+              </div>
+
+              {/* Amounts Selection */}
+              <div className="flex gap-2 w-full">
+                {PRESET_AMOUNTS.map((preset) => {
+                  const isActive = selectedAmount === preset && !customAmount;
+                  return (
+                    <motion.button
+                      key={preset}
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
+                      onClick={() => { setSelectedAmount(preset); setCustomAmount(""); }}
+                      className={`flex-1 py-3 px-1 sm:px-2 rounded-2xl text-xs sm:text-sm font-bold transition-all ${
+                        isActive 
+                          ? 'bg-white text-gray-900 shadow-[0_0_20px_rgba(255,255,255,0.2)]' 
+                          : 'bg-white/5 text-white/90 border border-white/10 hover:bg-white/10'
+                      }`}
+                    >
+                      ${preset}
+                    </motion.button>
+                  );
+                })}
+              </div>
+
+              {/* Custom Amount */}
+              <div className="relative">
+                <span className="absolute left-4 sm:left-5 top-1/2 -translate-y-1/2 text-white/50 font-semibold text-lg pointer-events-none">$</span>
+                <input
+                  type="number"
+                  placeholder="Custom"
+                  step="0.10"
+                  min="0.10"
+                  value={customAmount}
+                  onChange={(e) => { setCustomAmount(e.target.value); if (e.target.value) setSelectedAmount(""); }}
+                  className="w-full bg-black/25 border border-white/10 rounded-2xl py-3 sm:py-4 pr-4 pl-9 sm:pl-10 text-white text-base sm:text-lg font-medium outline-none transition-colors focus:border-white/30 focus:bg-white/10"
+                />
+              </div>
+
               <AnimatePresence>
                 {txState === "error" && errorMsg && (
-                  <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} style={{ display: "flex", gap: 8, alignItems: "flex-start", background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 12, padding: "0.75rem 1rem" }}>
-                    <AlertCircle style={{ width: 16, height: 16, color: "#ef4444", flexShrink: 0, marginTop: 1 }} />
-                    <p style={{ margin: 0, fontSize: "0.813rem", color: "#fca5a5" }}>{errorMsg}</p>
+                  <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="flex gap-2 items-start bg-red-500/10 border border-red-500/30 rounded-xl p-3">
+                    <AlertCircle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
+                    <p className="m-0 text-xs sm:text-sm text-red-300 break-words">{errorMsg}</p>
                   </motion.div>
                 )}
               </AnimatePresence>
@@ -115,30 +200,36 @@ export function TipWidget() {
               <motion.button
                 whileHover={!isLoading ? { scale: 1.02 } : {}}
                 whileTap={!isLoading ? { scale: 0.96 } : {}}
-                transition={{ type: "spring", stiffness: 400, damping: 17 }}
                 onClick={sendTip}
-                disabled={isLoading}
-                style={{ width: "100%", padding: "1rem", borderRadius: 16, border: "none", background: "white", color: "#0a0a0c", fontWeight: 700, fontSize: "1rem", cursor: isLoading ? "not-allowed" : "pointer", opacity: isLoading ? 0.8 : 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, boxShadow: "0 8px 32px rgba(255,255,255,0.18), 0 2px 8px rgba(0,0,0,0.3)" }}
+                disabled={isLoading || !canSend}
+                className="w-full p-4 rounded-2xl bg-white text-gray-900 font-bold flex items-center justify-center gap-2 shadow-[0_8px_32px_rgba(255,255,255,0.15)] disabled:opacity-80 disabled:cursor-not-allowed"
               >
                 <AnimatePresence mode="wait">
                   {txState === "sending" ? (
-                    <motion.div key="loading" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <Loader2 style={{ width: 20, height: 20, animation: "spin 1s linear infinite" }} />
-                      Confirming on Arc...
+                    <motion.div key="loading" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex items-center gap-2 text-sm sm:text-base">
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                      Confirming...
                     </motion.div>
                   ) : txState === "verifying" ? (
-                    <motion.div key="verifying" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                       <Loader2 style={{ width: 20, height: 20, animation: "spin 1s linear infinite" }} />
-                       Waiting for Backend Confirmation...
+                    <motion.div key="verifying" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex items-center gap-2 text-sm sm:text-base">
+                       <Loader2 className="w-5 h-5 animate-spin" />
+                       Verifying...
                     </motion.div>
                   ) : (
-                    <motion.div key="send" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <Send style={{ width: 18, height: 18 }} />
-                      Send 0.10 USDC
+                    <motion.div key="send" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex items-center gap-2 text-sm sm:text-base">
+                      <Send className="w-5 h-5" />
+                      Send ${isNaN(parseFloat(displayAmount)) ? "0.00" : parseFloat(displayAmount).toFixed(2)}
                     </motion.div>
                   )}
                 </AnimatePresence>
               </motion.button>
+              
+              <div className="text-center mt-1">
+                 <p className="text-[11px] sm:text-xs text-white/40">
+                   Need funds? <a href="https://faucet.circle.com" target="_blank" rel="noreferrer" className="text-blue-400 hover:text-blue-300">Circle Faucet ↗</a>
+                 </p>
+                 <p className="text-[10px] text-white/30 mt-1">Select Arc Network</p>
+              </div>
             </div>
           )}
         </div>
@@ -151,16 +242,17 @@ export function TipWidget() {
             initial={{ opacity: 0, y: 16, scale: 0.92 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 16, scale: 0.92 }}
-            transition={{ type: "spring", stiffness: 400, damping: 22 }}
-            className="glass-panel"
-            style={{ position: "absolute", bottom: -80, left: 0, right: 0, borderRadius: 18, padding: "0.875rem 1.25rem", display: "flex", alignItems: "center", gap: 12, borderColor: "rgba(16,185,129,0.3)", background: "rgba(16, 185, 129, 0.05)", border: "1px solid rgba(16, 185, 129, 0.4)", backdropFilter: "blur(12px)" }}
+            className="absolute -bottom-20 left-2 right-2 sm:-bottom-24 sm:left-0 sm:right-0 p-4 rounded-2xl flex items-center gap-3 border border-emerald-500/40 bg-emerald-500/10 backdrop-blur-xl z-50 shadow-xl"
           >
-            <CheckCircle2 style={{ width: 24, height: 24, color: "#10b981", flexShrink: 0 }} />
-            <div style={{ overflow: "hidden", flex: 1 }}>
-              <p style={{ color: "white", fontWeight: 700, fontSize: "0.875rem", margin: 0 }}>Verified!</p>
-              <p style={{ color: "rgba(255,255,255,0.6)", fontSize: "0.75rem", margin: 0 }}>
-                {successMsg || "Transaction verified successfully."}
-              </p>
+            <CheckCircle2 className="w-6 h-6 text-emerald-400 shrink-0" />
+            <div className="overflow-hidden flex-1 w-full">
+              <p className="text-white font-bold text-sm m-0">Verified!</p>
+              <div className="mt-2 flex flex-col gap-1 text-[11px] sm:text-xs text-white/80">
+                <p className="m-0 flex justify-between w-full"><span>Amount:</span> <span className="font-bold text-white">${parseFloat(displayAmount).toFixed(2)} USDC</span></p>
+                <p className="m-0 flex justify-between w-full"><span>To:</span> <span className="font-mono text-white/90">{recipientAddress.slice(0,6)}...{recipientAddress.slice(-4)}</span></p>
+                <p className="m-0 flex justify-between w-full"><span>Network:</span> <span>Arc Testnet</span></p>
+                <p className="m-0 flex justify-between w-full"><span>Status:</span> <span className="text-emerald-400 font-medium">Confirmed in &lt; 1s</span></p>
+              </div>
             </div>
           </motion.div>
         )}
